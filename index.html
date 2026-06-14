@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1080" />
+  <title>قیمت خودرو</title>
+  <!-- CSS is injected inline by index.js at render time -->
+</head>
+<body>
+  <div class="canvas">
+
+    <!-- ── HEADER ── -->
+    <div class="header">
+      <div class="header-date-block">
+        <span class="date-label">بروزرسانی</span>
+        <span class="date-value">{{DATE}}</span>
+        <span class="date-day">{{DAY_NAME}}</span>
+      </div>
+
+      <div class="header-logo">
+        <span class="logo-title">قیمت خودرو</span>
+        <span class="logo-sub">AUTO PRICE BOARD</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ── TABLES GRID ── -->
+    <div class="body-grid">
+
+      <!-- SAIPA PANEL -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-badge"></div>
+          <div>
+            <div class="panel-title">سایپا</div>
+            <div class="panel-title-en">SAIPA GROUP</div>
+          </div>
+        </div>
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>مدل</th>
+              <th class="col-price">قیمت (م.ت)</th>
+              <th class="col-change">تغییر</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{SAIPA_ROWS}}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- IRAN KHODRO PANEL -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-badge"></div>
+          <div>
+            <div class="panel-title">ایران خودرو</div>
+            <div class="panel-title-en">IRAN KHODRO</div>
+          </div>
+        </div>
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>مدل</th>
+              <th class="col-price">قیمت (م.ت)</th>
+              <th class="col-change">تغییر</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{IKCO_ROWS}}
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- /body-grid -->
+
+    <!-- ── FOOTER ── -->
+    <div class="footer">
+      <span class="footer-note">قیمت‌ها بر اساس بازار آزاد — میلیون تومان</span>
+      <div class="footer-dots">
+        <span></span><span></span><span></span>
+      </div>
+      <span class="footer-handle">@autopriceboard</span>
+    </div>
+
+  </div><!-- /canvas -->
+</body>
+</html>

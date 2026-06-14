@@ -13,8 +13,8 @@ const RENDER_HTML  = path.join(__dirname, 'poster-render.html');
 // ─── CSS VAR RESOLVER ────────────────────────────────────────────────────────
 function resolveCssVars(css) {
   const vars = {};
-
   const rootBlock = css.match(/:root\s*\{([^}]+)\}/);
+
   if (rootBlock) {
     const lines = rootBlock[1].split('\n');
     for (const line of lines) {
@@ -70,7 +70,6 @@ function resolveChromium() {
     process.env.PUPPETEER_EXECUTABLE_PATH,
     (() => { try { return execSync('which chromium', { encoding: 'utf8' }).trim(); } catch { return null; } })(),
     (() => { try { return execSync('which chromium-browser', { encoding: 'utf8' }).trim(); } catch { return null; } })(),
-    `${os.homedir()}/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome`,
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
     '/usr/bin/google-chrome',
@@ -83,7 +82,6 @@ function resolveChromium() {
     }
   }
 
-  console.warn('⚠️ No explicit Chromium found — auto-detecting');
   return undefined;
 }
 
@@ -99,16 +97,18 @@ async function generatePoster(data) {
     `<style>\n${resolvedCss}\n</style>\n</head>`
   );
 
+  const chromiumPath = resolveChromium();
+
   const browser = await puppeteer.launch({
     headless: true,
-    ...(resolveChromium() ? { executablePath: resolveChromium() } : {}),
+    executablePath: chromiumPath,
+    timeout: 60000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--force-color-profile=srgb',
-      '--font-render-hinting=none',
+      '--disable-features=VizDisplayCompositor',
     ],
   });
 
@@ -117,7 +117,11 @@ async function generatePoster(data) {
   page.on('console', msg => console.log(`[browser:${msg.type()}]`, msg.text()));
   page.on('pageerror', err => console.error('[page error]', err.message));
 
-  await page.setViewport({ width: 1080, height: 1080, deviceScaleFactor: 1 });
+  await page.setViewport({
+    width: 1080,
+    height: 1080,
+    deviceScaleFactor: 1
+  });
 
   const finalHtml = htmlWithCss
     .replace('{{DATE}}', data.date)
@@ -125,28 +129,23 @@ async function generatePoster(data) {
     .replace('{{SAIPA_ROWS}}', buildTableRows(data.saipa))
     .replace('{{IKCO_ROWS}}', buildTableRows(data.iranKhodro));
 
-  // 🔥 DEBUG: save final HTML
   fs.writeFileSync(RENDER_HTML, finalHtml, 'utf8');
 
-  console.log('🌐 Rendering final HTML...');
+  console.log('🌐 Rendering...');
 
-  // ✅ FIX اصلی اینجاست
+  // ✅ مهم‌ترین FIX اینجاست
   await page.setContent(finalHtml, {
-    waitUntil: 'networkidle0'
+    waitUntil: 'domcontentloaded'
   });
 
-  await page.evaluate(() => document.fonts.ready);
-  await new Promise(r => setTimeout(r, 2000));
+  await page.evaluate(() => document.fonts?.ready);
+  await new Promise(r => setTimeout(r, 3000));
 
-  // Debug screenshot
   await page.screenshot({
     path: DEBUG_PATH,
     type: 'png'
   });
 
-  console.log('📸 Debug saved');
-
-  // Final screenshot
   await page.screenshot({
     path: OUTPUT_PATH,
     type: 'png'

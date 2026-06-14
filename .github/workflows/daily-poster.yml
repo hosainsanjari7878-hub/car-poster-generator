@@ -2,12 +2,8 @@ name: Daily Car Poster Generator
 
 on:
   schedule:
-    - cron: "0 7 * * *"  # هر روز ساعت ۷ صبح
+    - cron: "0 7 * * *"
   workflow_dispatch:
-    inputs:
-      test:
-        description: "run manually"
-        required: false
 
 jobs:
   build:
@@ -22,8 +18,8 @@ jobs:
         with:
           node-version: 18
 
-      - name: Enable Corepack (for pnpm)
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install -g pnpm@8
 
       - name: Install dependencies
         run: pnpm install

@@ -2,26 +2,20 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const axios = require('axios');
-const FormData = require('form-data');
+const { execSync } = require('child_process');
 
-// ─── PATHS ─────────────────────────────────────────────
-const DATA_PATH   = path.join(__dirname, 'data.json');
-const HTML_PATH   = path.join(__dirname, 'index.html');
-const CSS_PATH    = path.join(__dirname, 'style.css');
+const DATA_PATH = path.join(__dirname, 'data.json');
+const HTML_PATH = path.join(__dirname, 'index.html');
+const CSS_PATH = path.join(__dirname, 'style.css');
 const OUTPUT_PATH = path.join(__dirname, 'output.png');
-const DEBUG_PATH  = path.join(__dirname, 'debug.png');
+const DEBUG_PATH = path.join(__dirname, 'debug-before-data.png');
 const RENDER_HTML = path.join(__dirname, 'poster-render.html');
 
-// ─── TELEGRAM CONFIG ───────────────────────────────────
-const TOKEN = '8779560501:AAEHg1TtIsAkySPpbmmRMCaKFdUJe4G-jT4';
-const CHAT_ID = '6818436384'; // یا -100xxxxxxxx
-
-// ─── CSS VAR RESOLVER ──────────────────────────────────
+// ─── CSS VAR RESOLVER ─────────────────────────────
 function resolveCssVars(css) {
   const vars = {};
-
   const rootBlock = css.match(/:root\s*\{([^}]+)\}/);
+
   if (rootBlock) {
     const lines = rootBlock[1].split('\n');
     for (const line of lines) {
@@ -32,15 +26,17 @@ function resolveCssVars(css) {
 
   let resolved = css;
   for (let i = 0; i < 3; i++) {
-    resolved = resolved.replace(/var\((--[\w-]+)\)/g, (_, n) => vars[n] ?? n);
+    resolved = resolved.replace(/var\((--[\w-]+)\)/g, (_, name) => {
+      return vars[name] ?? name;
+    });
   }
 
   return resolved;
 }
 
-// ─── TABLE BUILDER ─────────────────────────────────────
+// ─── TABLE HELPERS ─────────────────────────────
 function changeClass(value) {
-  if (value === '0' || value === 0) return 'change-flat';
+  if (value === 0 || value === '0') return 'change-flat';
   return String(value).startsWith('+') ? 'change-up' : 'change-down';
 }
 
@@ -70,37 +66,64 @@ function buildTableRows(items = []) {
   `).join('\n');
 }
 
-// ─── CHROMIUM RESOLVER ─────────────────────────────────
+// ─── CHROMIUM RESOLVER ─────────────────────────────
 function resolveChromium() {
-  const { execSync } = require('child_process');
-
   const candidates = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
+    (() => {
+      try { return execSync('which chromium', { encoding: 'utf8' }).trim(); }
+      catch { return null; }
+    })(),
+    (() => {
+      try { return execSync('which chromium-browser', { encoding: 'utf8' }).trim(); }
+      catch { return null; }
+    })(),
+    `${os.homedir()}/.cache/puppeteer`,
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
-    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome'
   ];
 
   for (const p of candidates) {
-    try {
-      if (p && fs.existsSync(p)) return p;
-    } catch {}
+    if (p && fs.existsSync(p)) {
+      console.log('🔍 Chromium found:', p);
+      return p;
+    }
   }
 
-  try {
-    return execSync('which chromium', { encoding: 'utf8' }).trim();
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
 
-// ─── GENERATE POSTER ───────────────────────────────────
+// ─── MAIN ─────────────────────────────
 async function generatePoster(data) {
-  const css = resolveCssVars(fs.readFileSync(CSS_PATH, 'utf8'));
-  const html = fs.readFileSync(HTML_PATH, 'utf8');
+  const rawCss = fs.readFileSync(CSS_PATH, 'utf8');
+  const resolvedCss = resolveCssVars(rawCss);
+  const templateHtml = fs.readFileSync(HTML_PATH, 'utf8');
 
-  const finalHtml = html
-    .replace('</head>', `<style>${css}</style></head>`)
+  const htmlWithCss = templateHtml.replace(
+    '</head>',
+    `<style>${resolvedCss}</style></head>`
+  );
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    ...(resolveChromium() ? { executablePath: resolveChromium() } : {}),
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ]
+  });
+
+  const page = await browser.newPage();
+
+  page.on('console', msg => console.log('[browser]', msg.text()));
+  page.on('pageerror', err => console.error('[page error]', err.message));
+
+  await page.setViewport({ width: 1080, height: 1080 });
+
+  const finalHtml = htmlWithCss
     .replace('{{DATE}}', data?.date ?? '')
     .replace('{{DAY_NAME}}', data?.dayName ?? '')
     .replace('{{SAIPA_ROWS}}', buildTableRows(data?.saipa))
@@ -108,56 +131,22 @@ async function generatePoster(data) {
 
   fs.writeFileSync(RENDER_HTML, finalHtml, 'utf8');
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: resolveChromium(),
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-    ],
-  });
-
-  const page = await browser.newPage();
-
-  page.on('console', msg => console.log('[browser]', msg.text()));
-
-  await page.setViewport({ width: 1080, height: 1080 });
-
   await page.setContent(finalHtml, { waitUntil: 'networkidle0' });
 
-  await page.waitForTimeout(1500);
+  await page.evaluate(() => document.fonts?.ready);
+
+// 🔥 FIX اصلی اینجاست (جایگزین waitForTimeout)
+  await new Promise(resolve => setTimeout(resolve, 1500));
 
   await page.screenshot({ path: DEBUG_PATH });
   await page.screenshot({ path: OUTPUT_PATH });
 
   await browser.close();
 
-  console.log('✅ Poster generated');
+  console.log('✅ Poster generated successfully');
 }
 
-// ─── SEND TO TELEGRAM ──────────────────────────────────
-async function sendToTelegram() {
-  const form = new FormData();
-  form.append('chat_id', CHAT_ID);
-  form.append('photo', fs.createReadStream(OUTPUT_PATH));
-  form.append('caption', '🚗 قیمت جدید خودرو');
-
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TOKEN}/sendPhoto`,
-      form,
-      { headers: form.getHeaders() }
-    );
-
-    console.log('📤 Sent to Telegram');
-  } catch (err) {
-    console.error('❌ Telegram error:', err.response?.data || err.message);
-  }
-}
-
-// ─── MAIN ───────────────────────────────────────────────
+// ─── ENTRY ─────────────────────────────
 (async () => {
   let data = {};
 
@@ -168,7 +157,8 @@ async function sendToTelegram() {
   }
 
   const args = process.argv.slice(2);
-  if (args[0]) {
+
+  if (args.length > 0) {
     try {
       Object.assign(data, JSON.parse(args[0]));
     } catch {}
@@ -178,5 +168,4 @@ async function sendToTelegram() {
   data.iranKhodro = data.iranKhodro ?? [];
 
   await generatePoster(data);
-  await sendToTelegram();
 })();

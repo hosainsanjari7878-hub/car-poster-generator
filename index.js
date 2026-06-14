@@ -1,16 +1,23 @@
 const puppeteer = require('puppeteer');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
-const os   = require('os');
+const os = require('os');
+const axios = require('axios');
+const FormData = require('form-data');
 
-const DATA_PATH    = path.join(__dirname, 'data.json');
-const HTML_PATH    = path.join(__dirname, 'index.html');
-const CSS_PATH     = path.join(__dirname, 'style.css');
-const OUTPUT_PATH  = path.join(__dirname, 'output.png');
-const DEBUG_PATH   = path.join(__dirname, 'debug-before-data.png');
-const RENDER_HTML  = path.join(__dirname, 'poster-render.html');
+// ─── PATHS ─────────────────────────────────────────────
+const DATA_PATH   = path.join(__dirname, 'data.json');
+const HTML_PATH   = path.join(__dirname, 'index.html');
+const CSS_PATH    = path.join(__dirname, 'style.css');
+const OUTPUT_PATH = path.join(__dirname, 'output.png');
+const DEBUG_PATH  = path.join(__dirname, 'debug.png');
+const RENDER_HTML = path.join(__dirname, 'poster-render.html');
 
-// ─── CSS VAR RESOLVER ─────────────────────────────────────────────
+// ─── TELEGRAM CONFIG ───────────────────────────────────
+const TOKEN = '8779560501:AAEHg1TtIsAkySPpbmmRMCaKFdUJe4G-jT4';
+const CHAT_ID = '6818436384'; // یا -100xxxxxxxx
+
+// ─── CSS VAR RESOLVER ──────────────────────────────────
 function resolveCssVars(css) {
   const vars = {};
 
@@ -24,22 +31,21 @@ function resolveCssVars(css) {
   }
 
   let resolved = css;
-  for (let pass = 0; pass < 3; pass++) {
-    resolved = resolved.replace(/var\((--[\w-]+)\)/g, (_, name) => vars[name] ?? name);
+  for (let i = 0; i < 3; i++) {
+    resolved = resolved.replace(/var\((--[\w-]+)\)/g, (_, n) => vars[n] ?? n);
   }
 
   return resolved;
 }
 
-// ─── SAFE TABLE BUILDER ───────────────────────────────────────────
+// ─── TABLE BUILDER ─────────────────────────────────────
 function changeClass(value) {
   if (value === '0' || value === 0) return 'change-flat';
   return String(value).startsWith('+') ? 'change-up' : 'change-down';
 }
 
 function changeLabel(value) {
-  const str = String(value);
-  return str === '0' ? '—' : str;
+  return String(value) === '0' ? '—' : String(value);
 }
 
 function buildTableRows(items = []) {
@@ -64,46 +70,47 @@ function buildTableRows(items = []) {
   `).join('\n');
 }
 
-// ─── CHROMIUM RESOLVER ────────────────────────────────────────────
+// ─── CHROMIUM RESOLVER ─────────────────────────────────
 function resolveChromium() {
   const { execSync } = require('child_process');
 
   const candidates = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
-    (() => { try { return execSync('which chromium', { encoding: 'utf8' }).trim(); } catch { return null; } })(),
-    (() => { try { return execSync('which chromium-browser', { encoding: 'utf8' }).trim(); } catch { return null; } })(),
-    `${os.homedir()}/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome`,
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
     '/usr/bin/google-chrome',
   ];
 
   for (const p of candidates) {
-    if (p && fs.existsSync(p)) {
-      console.log(`🔍 Chromium → ${p}`);
-      return p;
-    }
+    try {
+      if (p && fs.existsSync(p)) return p;
+    } catch {}
   }
 
-  console.warn('⚠️ No explicit Chromium found');
-  return undefined;
+  try {
+    return execSync('which chromium', { encoding: 'utf8' }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
-// ─── MAIN ──────────────────────────────────────────────────────────
+// ─── GENERATE POSTER ───────────────────────────────────
 async function generatePoster(data) {
-  const rawCss = fs.readFileSync(CSS_PATH, 'utf8');
-  const resolvedCss = resolveCssVars(rawCss);
+  const css = resolveCssVars(fs.readFileSync(CSS_PATH, 'utf8'));
+  const html = fs.readFileSync(HTML_PATH, 'utf8');
 
-  const templateHtml = fs.readFileSync(HTML_PATH, 'utf8');
+  const finalHtml = html
+    .replace('</head>', `<style>${css}</style></head>`)
+    .replace('{{DATE}}', data?.date ?? '')
+    .replace('{{DAY_NAME}}', data?.dayName ?? '')
+    .replace('{{SAIPA_ROWS}}', buildTableRows(data?.saipa))
+    .replace('{{IKCO_ROWS}}', buildTableRows(data?.iranKhodro));
 
-  const htmlWithCss = templateHtml.replace(
-    '</head>',
-    `<style>\n${resolvedCss}\n</style>\n</head>`
-  );
+  fs.writeFileSync(RENDER_HTML, finalHtml, 'utf8');
 
   const browser = await puppeteer.launch({
     headless: true,
-    ...(resolveChromium() ? { executablePath: resolveChromium() } : {}),
+    executablePath: resolveChromium(),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -114,52 +121,62 @@ async function generatePoster(data) {
 
   const page = await browser.newPage();
 
-  page.on('console', msg => console.log(`[browser:${msg.type()}]`, msg.text()));
-  page.on('pageerror', err => console.error('[page error]', err.message));
+  page.on('console', msg => console.log('[browser]', msg.text()));
 
   await page.setViewport({ width: 1080, height: 1080 });
 
-  const finalHtml = htmlWithCss
-    .replace('{{DATE}}', data?.date ?? '')
-    .replace('{{DAY_NAME}}', data?.dayName ?? '')
-    .replace('{{SAIPA_ROWS}}', buildTableRows(data?.saipa))
-    .replace('{{IKCO_ROWS}}', buildTableRows(data?.iranKhodro));
-
-  fs.writeFileSync(RENDER_HTML, finalHtml, 'utf8');
-
   await page.setContent(finalHtml, { waitUntil: 'networkidle0' });
 
-  await page.evaluate(() => document.fonts?.ready);
-  await new Promise(r => setTimeout(r, 1500));
+  await page.waitForTimeout(1500);
 
   await page.screenshot({ path: DEBUG_PATH });
   await page.screenshot({ path: OUTPUT_PATH });
 
   await browser.close();
 
-  console.log('✅ Done → output.png generated');
+  console.log('✅ Poster generated');
 }
 
-// ─── ENTRY ─────────────────────────────────────────────────────────
+// ─── SEND TO TELEGRAM ──────────────────────────────────
+async function sendToTelegram() {
+  const form = new FormData();
+  form.append('chat_id', CHAT_ID);
+  form.append('photo', fs.createReadStream(OUTPUT_PATH));
+  form.append('caption', '🚗 قیمت جدید خودرو');
+
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TOKEN}/sendPhoto`,
+      form,
+      { headers: form.getHeaders() }
+    );
+
+    console.log('📤 Sent to Telegram');
+  } catch (err) {
+    console.error('❌ Telegram error:', err.response?.data || err.message);
+  }
+}
+
+// ─── MAIN ───────────────────────────────────────────────
 (async () => {
   let data = {};
 
   try {
     data = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
   } catch {
-    console.log('⚠️ data.json not found or invalid');
+    console.log('⚠️ data.json not found');
   }
 
   const args = process.argv.slice(2);
-  if (args.length > 0) {
+  if (args[0]) {
     try {
       Object.assign(data, JSON.parse(args[0]));
     } catch {}
   }
 
-  // 🔥 مهم‌ترین فیکس
   data.saipa = data.saipa ?? [];
   data.iranKhodro = data.iranKhodro ?? [];
 
   await generatePoster(data);
+  await sendToTelegram();
 })();

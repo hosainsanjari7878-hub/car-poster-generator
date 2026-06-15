@@ -2,7 +2,7 @@ name: Daily Car Poster Generator
 
 on:
   schedule:
-    - cron: '30 5 * * *'   # 09:00 AM Iran (UTC+3:30)
+    - cron: '30 6 * * *'  # 10:00 AM Iran (UTC+3:30)
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,11 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+
+      - name: Debug - show start time
+        run: |
+          echo "🚀 Workflow started"
+          date
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -25,4 +30,15 @@ jobs:
         run: pnpm install
 
       - name: Run script
-        run: node index.js
+        run: |
+          echo "🖼️ Running index.js..."
+          node index.js
+
+      - name: Debug - check output
+        run: |
+          echo "📦 Checking output file..."
+          ls -lah
+          if [ -f output.png ]; then echo "✅ output.png exists"; else echo "❌ output.png NOT FOUND"; exit 1; fi
+
+      - name: Success message
+        run: echo "🎉 Workflow finished successfully"

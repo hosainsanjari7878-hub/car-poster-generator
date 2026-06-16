@@ -1,8 +1,6 @@
 name: Daily Car Poster Generator
 
 on:
-  schedule:
-    - cron: '30 6 * * *'  # 10:00 AM Iran (UTC+3:30)
   workflow_dispatch:
 
 jobs:
@@ -11,7 +9,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Debug - show start time
         run: |
@@ -38,7 +36,12 @@ jobs:
         run: |
           echo "📦 Checking output file..."
           ls -lah
-          if [ -f output.png ]; then echo "✅ output.png exists"; else echo "❌ output.png NOT FOUND"; exit 1; fi
+          if [ -f output.png ]; then 
+            echo "✅ output.png exists"
+          else 
+            echo "❌ output.png NOT FOUND"
+            exit 1
+          fi
 
       - name: Success message
         run: echo "🎉 Workflow finished successfully"
